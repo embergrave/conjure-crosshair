@@ -1,0 +1,104 @@
+# Conjure Crosshair
+
+Conjure Crosshair is a Windows system-tray utility that displays a customizable, click-through crosshair above other applications. It supports multiple monitors, saved placement, custom PNG images, color selection, and global keyboard or mouse-button toggles.
+
+## Features
+
+- Always-on-top, click-through overlay
+- Exact centering based on each monitor's available resolution and origin
+- Built-in crosshairs plus custom PNG import and removal
+- Color selection and saved position
+- Keyboard, numpad, and extra mouse-button hotkeys
+- Default toggle hotkey: `F8`
+- Single-instance behavior: a second launch exits and turns on the existing crosshair
+- Starts with the crosshair on every fresh launch
+- Optional Windows startup shortcut through the installer
+
+## Use The Application
+
+The application runs in the system tray. Its menu provides:
+
+- `Select Crosshair` - choose a built-in or imported crosshair
+- `Select Color` - choose the overlay color
+- `Select Monitor` - choose which monitor receives the crosshair
+- `Set Position` - edit the saved X/Y position
+- `Toggle: On/Off` - show or hide the crosshair
+- `Set Hotkey: <Hotkey>` - capture a keyboard, numpad, or extra mouse button
+- `Exit` - close the application
+
+The hotkey dialog listens for a physical key or mouse button, shows the captured input, and provides `Reassign` and `Save` actions. Mouse movement is ignored.
+
+## Run From Source
+
+Windows and Python 3.11 or newer are required. Global input hooks may require running with the same permissions as the application being controlled.
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python.exe -m pip install PyQt6==6.11.0 pystray==0.19.5 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1
+.venv\Scripts\python.exe main.py
+```
+
+The source-mode configuration and log are written beside the Python files. Do not commit personal configuration or log files.
+
+## Build A Release
+
+Run `package.bat` from a Windows Command Prompt or PowerShell:
+
+```powershell
+.\package.bat
+```
+
+The script creates `.venv` when needed, installs the pinned dependencies, and builds:
+
+```text
+dist\Conjure Crosshair.exe
+```
+
+If Inno Setup 6 is installed, it also creates:
+
+```text
+dist\Conjure Crosshair Installer.exe
+```
+
+Python 3.11 or newer and the Python Launcher (`py`) are required. Inno Setup 6 is optional when only the portable executable is needed. The executable targets the architecture of the Python installation used to build it; use 64-bit Python for current 64-bit Windows systems.
+
+## Install Or Distribute
+
+For normal distribution, share `dist\Conjure Crosshair Installer.exe`. The installer creates Start Menu and desktop shortcuts and offers an optional Windows startup task.
+
+The portable `dist\Conjure Crosshair.exe` can be run directly without installation. It contains the application, Python runtime, Qt runtime, assets, and input dependencies.
+
+## User Data And Logs
+
+Frozen or installed builds store settings, logs, and user-added crosshairs in:
+
+```text
+%LOCALAPPDATA%\Conjure Crosshair
+```
+
+The startup log is `conjure_crosshair.log`. It records detected monitor resolutions, monitor origins, calculated centers, and crosshair placement coordinates.
+
+Source-mode runs store the same files in the project directory because the source configuration directory is the directory containing `main.py`.
+
+Deleting the data directory resets the application to its defaults and removes imported crosshairs and logs.
+
+## Project Layout
+
+- `main.py` - application startup, tray menu, dialogs, hotkeys, and instance signaling
+- `crosshair_window.py` - transparent overlay window and monitor positioning
+- `config_manager.py` - configuration defaults and persistence
+- `assets/` - built-in crosshair images
+- `icon.ico` - application, dialog, executable, and installer icon
+- `build.spec` - PyInstaller one-file configuration
+- `installer.iss` - Inno Setup configuration
+- `package.bat` - repeatable Windows release build
+
+Generated folders such as `.venv`, `build`, `dist`, and `__pycache__` are local artifacts and should not be distributed with the source. User-specific `config.json` and `conjure_crosshair.log` files should also remain local.
+
+## Troubleshooting
+
+- **The hotkey does not work:** choose another key or mouse button, and run Conjure Crosshair with the permissions required by the target application.
+- **The overlay is not visible:** use `Toggle: On/Off`, verify the selected monitor, and check `conjure_crosshair.log` for detected monitor geometry.
+- **A second launch does not show the crosshair:** fully close the existing process and relaunch the current executable. Single-instance signaling is supported on Windows.
+- **The installer is not created:** install Inno Setup 6, then run `package.bat` again. The portable EXE is still created without Inno Setup.
+- **Packaging fails:** confirm that `py` is available, use 64-bit Python for 64-bit Windows, and ensure dependencies can be downloaded.
