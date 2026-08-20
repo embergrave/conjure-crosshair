@@ -84,6 +84,12 @@ For normal distribution, share `dist\Conjure Crosshair Installer.exe`. The insta
 
 The portable `dist\Conjure Crosshair.exe` can be run directly without installation. It contains the application, Python runtime, Qt runtime, assets, and input dependencies.
 
+### Updating An Installation
+
+To update an installed copy, download and run the installer from the newest GitHub Release. Inno Setup recognizes the existing installation through the stable application ID, reuses the existing install directory, and replaces the application files with the newer version. It closes the running application during the update and launches the new version afterward.
+
+The installer can be cancelled before making changes. User settings, imported crosshairs, and logs remain in `%LOCALAPPDATA%\Conjure Crosshair` and are not removed during an update. The portable EXE does not update itself; download the newest EXE manually or use the installer for managed updates.
+
 ## User Data And Logs
 
 Frozen or installed builds store settings, logs, and user-added crosshairs in:
