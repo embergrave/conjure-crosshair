@@ -24,6 +24,7 @@ The application runs in the system tray. Its menu provides:
 - `Set Position` - edit the saved X/Y position
 - `Toggle: On/Off` - show or hide the crosshair
 - `Set Hotkey: <Hotkey>` - capture a keyboard, numpad, or extra mouse button
+- `Update` - check for a newer GitHub Release and launch its installer
 - `Exit` - close the application
 
 The hotkey dialog listens for a physical key or mouse button, shows the captured input, and provides `Reassign` and `Save` actions. Mouse movement is ignored.
@@ -76,6 +77,8 @@ git push origin v1.0.0
 
 Pushing a tag matching `v*.*.*` starts `.github/workflows/release.yml` on a Windows runner. The workflow builds the portable executable, builds the Inno Setup installer using the tag version, and publishes both files to a GitHub Release with generated release notes. Use a new tag for each release, such as `v1.1.0` or `v1.1.1`; tags are immutable release identifiers and should not be reused.
 
+The workflow also stamps the release tag into `version.py`, so the installed application compares its own version with the latest published release correctly.
+
 Normal branch pushes do not publish a release. The workflow uses GitHub's temporary Actions token, so no personal access token or repository secret is required. Repository Actions must have permission to write releases.
 
 ## Install Or Distribute
@@ -114,6 +117,7 @@ Deleting the data directory resets the application to its defaults and removes i
 - `build.spec` - PyInstaller one-file configuration
 - `installer.iss` - Inno Setup configuration
 - `package.bat` - repeatable Windows release build
+- `version.py` - current application version used by the updater
 - `.github/workflows/release.yml` - tag-triggered GitHub Release automation
 
 Generated folders such as `.venv`, `build`, `dist`, and `__pycache__` are local artifacts and should not be distributed with the source. User-specific `config.json` and `conjure_crosshair.log` files should also remain local.

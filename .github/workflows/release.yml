@@ -27,6 +27,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install PyQt6==6.11.0 pystray==0.19.5 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1 pyinstaller==6.22.2
 
+      - name: Set application version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_VERSION.TrimStart('v')
+          (Get-Content version.py) -replace 'APP_VERSION = "[^"]+"', "APP_VERSION = `"$version`"" | Set-Content version.py
+
       - name: Build portable executable
         shell: pwsh
         run: python -m PyInstaller --clean --noconfirm build.spec

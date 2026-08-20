@@ -1,9 +1,15 @@
 import os
 import ctypes
+import json
 import logging
 import shutil
+import subprocess
 import sys
+import tempfile
 import threading
+import urllib.error
+import urllib.request
+import re
 
 import keyboard
 import mouse
@@ -20,6 +26,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -27,6 +34,7 @@ from PyQt6.QtWidgets import (
 
 from config_manager import ConfigManager
 from crosshair_window import CrosshairWindow
+from version import APP_VERSION
 
 
 class _MainThreadInvoker(QObject):
@@ -44,6 +52,8 @@ INSTANCE_MUTEX_NAME = "ConjureCrosshair.SingleInstance"
 INSTANCE_EVENT_NAME = "ConjureCrosshair.ShowCrosshair"
 ERROR_ALREADY_EXISTS = 183
 EVENT_MODIFY_STATE = 0x0002
+GITHUB_RELEASES_API = "https://api.github.com/repos/embergrave/conjure-crosshair/releases/latest"
+INSTALLER_ASSET_NAME = "Conjure Crosshair Installer.exe"
 
 
 def acquire_instance_handles():
@@ -295,7 +305,11 @@ class ConjureCrosshairApp:
 
     def build_tray_menu(self):
         settings_menu = self.build_settings_menu()
-        return Menu(*settings_menu.items, MenuItem("Exit", self._safe_exit_application))
+        return Menu(
+            *settings_menu.items,
+            MenuItem("Update", self._tray_update),
+            MenuItem("Exit", self._safe_exit_application),
+        )
 
     def build_settings_menu(self):
         crosshair_menu = Menu(
@@ -557,6 +571,103 @@ class ConjureCrosshairApp:
 
     def _tray_set_hotkey(self, icon=None, item=None):
         self._invoke_on_main_thread(self._open_hotkey_dialog)
+
+    def _tray_update(self, icon=None, item=None):
+        self._invoke_on_main_thread(self._check_for_updates)
+
+    def _check_for_updates(self):
+        threading.Thread(target=self._fetch_latest_release, daemon=True).start()
+
+    def _fetch_latest_release(self):
+        try:
+            request = urllib.request.Request(
+                GITHUB_RELEASES_API,
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "Conjure-Crosshair"},
+            )
+            with urllib.request.urlopen(request, timeout=15) as response:
+                release = json.loads(response.read().decode("utf-8"))
+            tag_name = release.get("tag_name", "")
+            installer_asset = next(
+                (
+                    asset
+                    for asset in release.get("assets", [])
+                    if self._normalize_asset_name(asset.get("name", ""))
+                    == self._normalize_asset_name(INSTALLER_ASSET_NAME)
+                ),
+                None,
+            )
+            if not tag_name or installer_asset is None:
+                raise ValueError("The latest release does not contain the installer asset.")
+            self._invoke_on_main_thread(
+                lambda: self._handle_update_result(tag_name, installer_asset["browser_download_url"])
+            )
+        except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as error:
+            self._invoke_on_main_thread(lambda: self._show_update_error(str(error)))
+
+    def _handle_update_result(self, tag_name, download_url):
+        latest_version = self._parse_version(tag_name)
+        current_version = self._parse_version(APP_VERSION)
+        if latest_version <= current_version:
+            self._show_update_message(
+                f"You are using the latest version ({APP_VERSION}).",
+            )
+            return
+
+        result = QMessageBox.question(
+            None,
+            "Conjure Crosshair: Update Available",
+            f"Version {tag_name.lstrip('v')} is available.\n\nDownload and install it now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if result == QMessageBox.StandardButton.Yes:
+            threading.Thread(
+                target=self._download_and_launch_update,
+                args=(download_url,),
+                daemon=True,
+            ).start()
+
+    def _download_and_launch_update(self, download_url):
+        installer_path = ""
+        try:
+            request = urllib.request.Request(
+                download_url,
+                headers={"User-Agent": "Conjure-Crosshair"},
+            )
+            with urllib.request.urlopen(request, timeout=60) as response:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", suffix=".exe", prefix="ConjureCrosshair-Update-", delete=False
+                ) as installer_file:
+                    installer_path = installer_file.name
+                    shutil.copyfileobj(response, installer_file)
+            subprocess.Popen([installer_path], close_fds=True)
+            self._invoke_on_main_thread(self._exit_application_impl)
+        except (OSError, urllib.error.URLError) as error:
+            if installer_path and os.path.exists(installer_path):
+                os.remove(installer_path)
+            self._invoke_on_main_thread(lambda: self._show_update_error(str(error)))
+
+    def _show_update_message(self, message):
+        QMessageBox.information(None, "Conjure Crosshair: Update", message)
+
+    def _show_update_error(self, error):
+        QMessageBox.critical(
+            None,
+            "Conjure Crosshair: Update Failed",
+            f"The update could not be completed.\n\n{error}",
+        )
+
+    @staticmethod
+    def _parse_version(version):
+        values = version.lstrip("vV").split(".")
+        try:
+            return tuple(int(value) for value in values[:3])
+        except ValueError:
+            return (0, 0, 0)
+
+    @staticmethod
+    def _normalize_asset_name(asset_name):
+        return re.sub(r"[^a-z0-9]", "", asset_name.lower())
 
     def _open_hotkey_dialog(self):
         dialog = QDialog()
