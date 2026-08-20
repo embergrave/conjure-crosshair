@@ -1,5 +1,7 @@
 #define MyAppName "Conjure Crosshair"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+	#define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Conjure Crosshair"
 #define MyAppExeName "Conjure Crosshair.exe"
 

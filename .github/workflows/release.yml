@@ -1,0 +1,56 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PyQt6==6.11.0 pystray==0.19.5 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1 pyinstaller==6.22.2
+
+      - name: Build portable executable
+        shell: pwsh
+        run: python -m PyInstaller --clean --noconfirm build.spec
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          $version = $env:RELEASE_VERSION.TrimStart('v')
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" installer.iss
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            'dist\Conjure Crosshair.exe#Conjure Crosshair.exe' `
+            'dist\Conjure Crosshair Installer.exe#Conjure Crosshair Installer.exe' `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "Conjure Crosshair $env:GITHUB_REF_NAME" `
+            --generate-notes

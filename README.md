@@ -62,6 +62,22 @@ dist\Conjure Crosshair Installer.exe
 
 Python 3.11 or newer and the Python Launcher (`py`) are required. Inno Setup 6 is optional when only the portable executable is needed. The executable targets the architecture of the Python installation used to build it; use 64-bit Python for current 64-bit Windows systems.
 
+## Publish A GitHub Release
+
+Releases use semantic-version tags. Push the `main` branch first, then create and push a tag:
+
+```powershell
+git add .
+git commit -m "Describe the change"
+git push origin main
+git tag -a v1.0.0 -m "Release v1.0.0"
+git push origin v1.0.0
+```
+
+Pushing a tag matching `v*.*.*` starts `.github/workflows/release.yml` on a Windows runner. The workflow builds the portable executable, builds the Inno Setup installer using the tag version, and publishes both files to a GitHub Release with generated release notes. Use a new tag for each release, such as `v1.1.0` or `v1.1.1`; tags are immutable release identifiers and should not be reused.
+
+Normal branch pushes do not publish a release. The workflow uses GitHub's temporary Actions token, so no personal access token or repository secret is required. Repository Actions must have permission to write releases.
+
 ## Install Or Distribute
 
 For normal distribution, share `dist\Conjure Crosshair Installer.exe`. The installer creates Start Menu and desktop shortcuts and offers an optional Windows startup task.
@@ -92,6 +108,7 @@ Deleting the data directory resets the application to its defaults and removes i
 - `build.spec` - PyInstaller one-file configuration
 - `installer.iss` - Inno Setup configuration
 - `package.bat` - repeatable Windows release build
+- `.github/workflows/release.yml` - tag-triggered GitHub Release automation
 
 Generated folders such as `.venv`, `build`, `dist`, and `__pycache__` are local artifacts and should not be distributed with the source. User-specific `config.json` and `conjure_crosshair.log` files should also remain local.
 
