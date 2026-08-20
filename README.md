@@ -49,19 +49,13 @@ Run `package.bat` from a Windows Command Prompt or PowerShell:
 .\package.bat
 ```
 
-The script creates `.venv` when needed, installs the pinned dependencies, and builds:
+The script creates `.venv` when needed, installs the pinned dependencies, builds the application for packaging, and creates:
 
 ```text
-dist\Conjure Crosshair.exe
+release\Conjure Crosshair.exe
 ```
 
-If Inno Setup 6 is installed, it also creates:
-
-```text
-dist\Conjure Crosshair Installer.exe
-```
-
-Python 3.11 or newer and the Python Launcher (`py`) are required. Inno Setup 6 is optional when only the portable executable is needed. The executable targets the architecture of the Python installation used to build it; use 64-bit Python for current 64-bit Windows systems.
+This is the installer and the only file intended for distribution. Python 3.11 or newer, the Python Launcher (`py`), and Inno Setup 6 are required to create it. The installed application targets the architecture of the Python installation used to build it; use 64-bit Python for current 64-bit Windows systems.
 
 ## Publish A GitHub Release
 
@@ -75,7 +69,7 @@ git tag -a v1.0.0 -m "Release v1.0.0"
 git push origin v1.0.0
 ```
 
-Pushing a tag matching `v*.*.*` starts `.github/workflows/release.yml` on a Windows runner. The workflow builds the portable executable, builds the Inno Setup installer using the tag version, and publishes both files to a GitHub Release with generated release notes. Use a new tag for each release, such as `v1.1.0` or `v1.1.1`; tags are immutable release identifiers and should not be reused.
+Pushing a tag matching `v*.*.*` starts `.github/workflows/release.yml` on a Windows runner. The workflow builds the application internally, wraps it in the Inno Setup installer using the tag version, and publishes one downloadable file to a GitHub Release: `Conjure Crosshair.exe`. Use a new tag for each release, such as `v1.1.0` or `v1.1.1`; tags are immutable release identifiers and should not be reused.
 
 The workflow also stamps the release tag into `version.py`, so the installed application compares its own version with the latest published release correctly.
 
@@ -83,15 +77,15 @@ Normal branch pushes do not publish a release. The workflow uses GitHub's tempor
 
 ## Install Or Distribute
 
-For normal distribution, share `dist\Conjure Crosshair Installer.exe`. The installer creates Start Menu and desktop shortcuts and offers an optional Windows startup task.
+For normal distribution, share the GitHub Release asset `Conjure Crosshair.exe`. This is the installer. It creates Start Menu and desktop shortcuts and offers an optional Windows startup task.
 
-The portable `dist\Conjure Crosshair.exe` can be run directly without installation. It contains the application, Python runtime, Qt runtime, assets, and input dependencies.
+The PyInstaller application binary is an internal build input and is not published as a separate release download.
 
 ### Updating An Installation
 
 To update an installed copy, download and run the installer from the newest GitHub Release. Inno Setup recognizes the existing installation through the stable application ID, reuses the existing install directory, and replaces the application files with the newer version. It closes the running application during the update and launches the new version afterward.
 
-The installer can be cancelled before making changes. User settings, imported crosshairs, and logs remain in `%LOCALAPPDATA%\Conjure Crosshair` and are not removed during an update. The portable EXE does not update itself; download the newest EXE manually or use the installer for managed updates.
+The installer can be cancelled before making changes. User settings, imported crosshairs, and logs remain in `%LOCALAPPDATA%\Conjure Crosshair` and are not removed during an update. The published EXE is the installer, so the `Update` menu action downloads and launches it for managed updates.
 
 ## User Data And Logs
 
@@ -127,5 +121,5 @@ Generated folders such as `.venv`, `build`, `dist`, and `__pycache__` are local 
 - **The hotkey does not work:** choose another key or mouse button, and run Conjure Crosshair with the permissions required by the target application.
 - **The overlay is not visible:** use `Toggle: On/Off`, verify the selected monitor, and check `conjure_crosshair.log` for detected monitor geometry.
 - **A second launch does not show the crosshair:** fully close the existing process and relaunch the current executable. Single-instance signaling is supported on Windows.
-- **The installer is not created:** install Inno Setup 6, then run `package.bat` again. The portable EXE is still created without Inno Setup.
+- **The installer is not created:** install Inno Setup 6, then run `package.bat` again.
 - **Packaging fails:** confirm that `py` is available, use 64-bit Python for 64-bit Windows, and ensure dependencies can be downloaded.

@@ -2,6 +2,9 @@
 #ifndef MyAppVersion
 	#define MyAppVersion "1.0.0"
 #endif
+#ifndef MyOutputDir
+	#define MyOutputDir "dist"
+#endif
 #define MyAppPublisher "Conjure Crosshair"
 #define MyAppExeName "Conjure Crosshair.exe"
 
@@ -19,8 +22,8 @@ CloseApplicationsFilter=Conjure Crosshair.exe
 RestartApplications=no
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=dist
-OutputBaseFilename=Conjure Crosshair Installer
+OutputDir={#MyOutputDir}
+OutputBaseFilename=Conjure Crosshair
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma

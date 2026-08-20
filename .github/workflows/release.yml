@@ -35,7 +35,7 @@ jobs:
           $version = $env:RELEASE_VERSION.TrimStart('v')
           (Get-Content version.py) -replace 'APP_VERSION = "[^"]+"', "APP_VERSION = `"$version`"" | Set-Content version.py
 
-      - name: Build portable executable
+      - name: Build application for installer
         shell: pwsh
         run: python -m PyInstaller --clean --noconfirm build.spec
 
@@ -48,8 +48,9 @@ jobs:
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
         run: |
+          New-Item -ItemType Directory -Force release | Out-Null
           $version = $env:RELEASE_VERSION.TrimStart('v')
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" installer.iss
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DMyAppVersion=$version" '/DMyOutputDir=release' installer.iss
 
       - name: Publish GitHub release
         shell: pwsh
@@ -57,8 +58,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create $env:GITHUB_REF_NAME `
-            'dist\Conjure Crosshair.exe#Conjure Crosshair.exe' `
-            'dist\Conjure Crosshair Installer.exe#Conjure Crosshair Installer.exe' `
+            'release\Conjure Crosshair.exe#Conjure Crosshair.exe' `
             --repo $env:GITHUB_REPOSITORY `
             --title "Conjure Crosshair $env:GITHUB_REF_NAME" `
             --generate-notes

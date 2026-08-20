@@ -31,15 +31,15 @@ set "ISCC="
 for %%P in ("%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" "%ProgramFiles%\Inno Setup 6\ISCC.exe") do if exist "%%~P" set "ISCC=%%~P"
 if not defined ISCC for /f "delims=" %%P in ('where ISCC.exe 2^>nul') do if not defined ISCC set "ISCC=%%P"
 if not defined ISCC (
-    echo EXE created at dist\Conjure Crosshair.exe
-    echo Inno Setup was not found, so no installer was created.
-    echo Install Inno Setup 6 and run this script again to create the installer.
-    exit /b 0
+    echo Inno Setup 6 was not found. It is required to create the installer.
+    echo Install Inno Setup 6 and run this script again.
+    exit /b 1
 )
 
 echo Creating installer...
-"%ISCC%" installer.iss
+if not exist "release" mkdir "release"
+"%ISCC%" "/DMyOutputDir=release" installer.iss
 if errorlevel 1 exit /b %errorlevel%
 
-echo Release files are in dist\
+echo Installer is in release\Conjure Crosshair.exe
 exit /b 0

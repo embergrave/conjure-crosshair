@@ -53,7 +53,7 @@ INSTANCE_EVENT_NAME = "ConjureCrosshair.ShowCrosshair"
 ERROR_ALREADY_EXISTS = 183
 EVENT_MODIFY_STATE = 0x0002
 GITHUB_RELEASES_API = "https://api.github.com/repos/embergrave/conjure-crosshair/releases/latest"
-INSTALLER_ASSET_NAME = "Conjure Crosshair Installer.exe"
+INSTALLER_ASSET_NAME = "Conjure Crosshair.exe"
 
 
 def acquire_instance_handles():
@@ -587,15 +587,25 @@ class ConjureCrosshairApp:
             with urllib.request.urlopen(request, timeout=15) as response:
                 release = json.loads(response.read().decode("utf-8"))
             tag_name = release.get("tag_name", "")
+            assets = release.get("assets", [])
             installer_asset = next(
                 (
                     asset
-                    for asset in release.get("assets", [])
-                    if self._normalize_asset_name(asset.get("name", ""))
-                    == self._normalize_asset_name(INSTALLER_ASSET_NAME)
+                    for asset in assets
+                    if "installer" in self._normalize_asset_name(asset.get("name", ""))
                 ),
                 None,
             )
+            if installer_asset is None:
+                installer_asset = next(
+                    (
+                        asset
+                        for asset in assets
+                        if self._normalize_asset_name(asset.get("name", ""))
+                        == self._normalize_asset_name(INSTALLER_ASSET_NAME)
+                    ),
+                    None,
+                )
             if not tag_name or installer_asset is None:
                 raise ValueError("The latest release does not contain the installer asset.")
             self._invoke_on_main_thread(
