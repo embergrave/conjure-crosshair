@@ -14,22 +14,25 @@ import re
 import keyboard
 import mouse
 from PIL import Image, ImageDraw
-from pystray import Icon, Menu, MenuItem
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QFrame,
     QColorDialog,
     QFileDialog,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSystemTrayIcon,
     QVBoxLayout,
+    QWidget,
 )
 
 from config_manager import ConfigManager
@@ -90,6 +93,7 @@ class ConjureCrosshairApp:
         self.config_manager = ConfigManager()
         self.logger = self._configure_logging()
         self.config = self.config_manager.load()
+        self._color_history = [QColor("#FF0000")]
         self.bundle_dir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
         self.asset_dir = os.path.join(self.config_manager.data_dir, "assets")
         self.bundle_asset_dir = os.path.join(self.bundle_dir, "assets")
@@ -102,6 +106,9 @@ class ConjureCrosshairApp:
         self._registered_mouse_button = ""
         self._mouse_hotkey_callback = None
         self._tray_icon = None
+        self._position_dialog_instance = None
+        self._color_dialog_instance = None
+        self._hotkey_dialog_instance = None
 
         self.ensure_default_assets()
         if not self.config.get("selected_image"):
@@ -109,7 +116,7 @@ class ConjureCrosshairApp:
         if not self.config.get("image_path"):
             self.config["image_path"] = self.get_asset_path(self.config["selected_image"])
 
-        self.set_crosshair_color(self.config.get("color", "#FFFFFF"), save=False)
+        self.set_crosshair_color(self.config.get("color", "#FF0000"), save=False)
         self.set_selected_image(self.config["selected_image"])
         self.log_monitor_layout()
         self.apply_saved_position()
@@ -295,72 +302,110 @@ class ConjureCrosshairApp:
 
     def create_tray_icon(self):
         icon_path = os.path.join(self.bundle_dir, "icon.ico")
-        with Image.open(icon_path) as source_icon:
-            icon = source_icon.convert("RGBA")
-
-        menu = self.build_tray_menu()
-        self._tray_icon = Icon("Conjure Crosshair", icon, "Conjure Crosshair", menu)
-        thread = threading.Thread(target=self._tray_icon.run, daemon=True)
-        thread.start()
+        self._tray_icon = QSystemTrayIcon(QIcon(icon_path), self.app)
+        self._tray_icon.setToolTip("Conjure Crosshair")
+        self._tray_icon.setContextMenu(self.build_tray_menu())
+        self._tray_icon.show()
 
     def build_tray_menu(self):
-        settings_menu = self.build_settings_menu()
-        return Menu(
-            *settings_menu.items,
-            MenuItem("Update", self._tray_update),
-            MenuItem("Exit", self._safe_exit_application),
-        )
+        menu = self.build_settings_menu()
+        menu.addSeparator()
+        self._add_menu_action(menu, "Update", self._tray_update)
+        self._add_menu_action(menu, "Exit", self._safe_exit_application)
+        menu.aboutToShow.connect(self._keep_tray_visible)
+        menu.setStyleSheet(self._tray_menu_stylesheet())
+        return menu
 
     def build_settings_menu(self):
-        crosshair_menu = Menu(
-            *[
-                MenuItem(
-                    self._display_name(image_name),
-                    self._crosshair_action(image_name),
-                )
-                for image_name in self.list_available_image_names()
-            ],
-            Menu.SEPARATOR,
-            MenuItem("Add Crosshair", self._tray_add_crosshair),
-            MenuItem("Remove Crosshair", self.build_remove_crosshair_menu()),
-        )
-        return Menu(
-            MenuItem("Select Crosshair", crosshair_menu),
-            MenuItem(
-                "Set Position",
-                self._tray_edit_position,
-            ),
-            MenuItem("Select Color", self._tray_edit_color),
-            MenuItem(
-                "Select Monitor",
-                self.build_monitor_menu(),
-            ),
-            MenuItem(
-                lambda item: f"Set Hotkey: {self.config.get('hotkey', 'F8')}",
-                self._tray_set_hotkey,
-            ),
-            MenuItem(
-                lambda item: f"Toggle: {'On' if self.window.visible else 'Off'}",
-                self._toggle_crosshair_from_tray,
-            ),
-        )
-
-    def build_remove_crosshair_menu(self):
+        menu = QMenu()
+        crosshair_menu = menu.addMenu("Select Crosshair")
+        for image_name in self.list_available_image_names():
+            self._add_menu_action(
+                crosshair_menu,
+                self._display_name(image_name),
+                lambda checked=False, name=image_name: self._tray_select_crosshair(name),
+            )
+        crosshair_menu.addSeparator()
+        self._add_menu_action(crosshair_menu, "Add Crosshair", self._tray_add_crosshair)
+        remove_menu = crosshair_menu.addMenu("Remove Crosshair")
         custom_images = [
             image_name
             for image_name in self.list_available_image_names()
             if image_name.lower() not in self.DEFAULT_CROSSHAIRS
             and os.path.isfile(self.get_user_asset_path(image_name))
         ]
-        return Menu(
-            *[
-                MenuItem(
-                    self._display_name(image_name),
-                    self._remove_crosshair_action(image_name),
-                )
-                for image_name in custom_images
-            ]
+        remove_menu.setEnabled(bool(custom_images))
+        for image_name in custom_images:
+            self._add_menu_action(
+                remove_menu,
+                self._display_name(image_name),
+                lambda checked=False, name=image_name: self._tray_remove_crosshair(name),
+            )
+
+        self._add_menu_action(menu, "Set Position", self._tray_edit_position)
+        self._add_menu_action(menu, "Select Color", self._tray_edit_color)
+        monitor_menu = menu.addMenu("Select Monitor")
+        for index, screen in enumerate(QApplication.screens()):
+            self._add_menu_action(
+                monitor_menu,
+                f"{index + 1}: {screen.name() or 'Monitor'}",
+                lambda checked=False, monitor=index: self._tray_select_monitor(monitor),
+            )
+        menu.addSeparator()
+        self._add_menu_action(
+            menu,
+            f"Toggle: {'On' if self.window.visible else 'Off'}",
+            self._toggle_crosshair_from_tray,
         )
+        self._add_menu_action(
+            menu,
+            f"Set Hotkey: {self.config.get('hotkey', 'F8')}",
+            self._tray_set_hotkey,
+        )
+        return menu
+
+    def _keep_tray_visible(self):
+        if self._tray_icon is not None:
+            self._tray_icon.show()
+
+    @staticmethod
+    def _add_menu_action(menu, label, callback):
+        action = menu.addAction(label)
+        action.triggered.connect(callback)
+        return action
+
+    @staticmethod
+    def _tray_menu_stylesheet():
+        return """
+            QMenu {
+                background-color: #171a21;
+                border: 1px solid #343a46;
+                border-radius: 6px;
+                color: #e8edf5;
+                padding: 6px;
+                font-size: 10pt;
+            }
+            QMenu::item {
+                padding: 7px 35px 7px 12px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #2b3442;
+                color: #ffffff;
+            }
+            QMenu::item:disabled {
+                color: #687181;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #343a46;
+                margin: 5px 8px;
+            }
+            QMenu::right-arrow {
+                width: 8px;
+                height: 8px;
+            }
+        """
 
     def _display_name(self, image_name):
         clean_name = os.path.splitext(os.path.basename(image_name))[0]
@@ -400,24 +445,6 @@ class ConjureCrosshairApp:
 
         self.refresh_tray_menu()
 
-    def build_monitor_menu(self):
-        screens = QApplication.screens()
-        return Menu(
-            *[
-                MenuItem(
-                    f"{index + 1}: {screen.name() or 'Monitor'}",
-                    self._monitor_action(index),
-                )
-                for index, screen in enumerate(screens)
-            ]
-        )
-
-    def _monitor_action(self, monitor_index):
-        def action(icon, item):
-            self._tray_select_monitor(monitor_index)
-
-        return action
-
     def _tray_edit_position(self, icon=None, item=None):
         self._invoke_on_main_thread(self._edit_position)
 
@@ -425,18 +452,92 @@ class ConjureCrosshairApp:
         self._invoke_on_main_thread(self._edit_color)
 
     def _edit_color(self):
-        current_color = QColor(self.config.get("color", "#FFFFFF"))
-        dialog = QColorDialog(current_color)
-        dialog.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, True)
+        if self._resurface_dialog(self._color_dialog_instance):
+            return
+
+        current_color = QColor(self.config.get("color", "#FF0000"))
+        dialog = QDialog()
+        self._color_dialog_instance = dialog
         dialog.setWindowFlag(Qt.WindowType.Window, True)
         dialog.setWindowTitle("Conjure Crosshair: Color")
         dialog.setWindowIcon(QIcon(os.path.join(self.bundle_dir, "icon.ico")))
-        dialog.adjustSize()
-        self._position_dialog(dialog)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            selected_color = dialog.currentColor()
+        dialog.setStyleSheet(self._dialog_stylesheet())
+
+        color_source = QColorDialog(current_color, dialog)
+        color_source.setOption(QColorDialog.ColorDialogOption.DontUseNativeDialog, True)
+        color_source.setWindowFlag(Qt.WindowType.Widget, True)
+        color_source.show()
+        QApplication.processEvents()
+
+        picker, brightness_bar = self._extract_color_picker(color_source)
+        picker.setParent(dialog)
+        brightness_bar.setParent(dialog)
+        color_source.hide()
+
+        dialog.setFixedSize(420, 360)
+        picker.setGeometry(116, 24, 222, 202)
+        brightness_bar.setGeometry(350, 24, 20, 208)
+        picker.show()
+        brightness_bar.show()
+
+        history_buttons = []
+        for index in range(10):
+            swatch = QPushButton(dialog)
+            swatch.setFixedSize(22, 18)
+            swatch.move(34, 24 + round(index * (202 - 18) / 9))
+            swatch.clicked.connect(
+                lambda checked=False, slot=index: select_history_color(slot)
+            )
+            history_buttons.append(swatch)
+
+        set_button = QPushButton("Set", dialog)
+        set_button.setGeometry(150, 270, 120, 36)
+        close_button = QPushButton("Close", dialog)
+        close_button.setGeometry(150, 314, 120, 36)
+
+        def refresh_history():
+            for index, swatch in enumerate(history_buttons):
+                color = self._color_history[index] if index < len(self._color_history) else None
+                swatch.setEnabled(color is not None)
+                if color is None:
+                    swatch.setStyleSheet(
+                        "min-width: 22px; max-width: 22px; min-height: 18px; max-height: 18px; "
+                        "padding: 0; background-color: #20252e; border: 1px solid #343a46; border-radius: 3px;"
+                    )
+                else:
+                    swatch.setToolTip(color.name().upper())
+                    swatch.setStyleSheet(
+                        f"min-width: 22px; max-width: 22px; min-height: 18px; max-height: 18px; "
+                        f"padding: 0; background-color: {color.name()}; border: 1px solid #687181; border-radius: 3px;"
+                    )
+
+        def select_history_color(index):
+            if index < len(self._color_history):
+                color_source.setCurrentColor(self._color_history[index])
+
+        def set_color():
+            selected_color = color_source.currentColor()
             if selected_color.isValid():
+                self._remember_color(selected_color)
                 self.set_crosshair_color(selected_color.name().upper())
+                refresh_history()
+
+        set_button.clicked.connect(set_color)
+        close_button.clicked.connect(dialog.reject)
+        refresh_history()
+        dialog.show()
+        picker.raise_()
+        brightness_bar.raise_()
+        for swatch in history_buttons:
+            swatch.show()
+            swatch.raise_()
+        set_button.show()
+        close_button.show()
+        self._center_dialog(dialog)
+        try:
+            dialog.exec()
+        finally:
+            self._color_dialog_instance = None
 
     def set_crosshair_color(self, color_hex, save=True):
         if not self.window.set_crosshair_color(color_hex):
@@ -447,14 +548,19 @@ class ConjureCrosshairApp:
         return True
 
     def _edit_position(self):
+        if self._resurface_dialog(self._position_dialog_instance):
+            return
+
         original_x = self.window.x()
         original_y = self.window.y()
         dialog = QDialog()
+        self._position_dialog_instance = dialog
         dialog.setWindowFlag(Qt.WindowType.Window, True)
         dialog.setWindowTitle("Conjure Crosshair: Position")
         icon_path = os.path.join(self.bundle_dir, "icon.ico")
         if os.path.exists(icon_path):
             dialog.setWindowIcon(QIcon(icon_path))
+        dialog.setStyleSheet(self._dialog_stylesheet())
         layout = QGridLayout(dialog)
 
         x_input = QSpinBox()
@@ -475,17 +581,17 @@ class ConjureCrosshairApp:
         coordinate_form.addRow("X:", x_input)
         coordinate_form.addRow("Y:", y_input)
 
-        up_button = QPushButton("▲")
-        left_button = QPushButton("◀")
-        right_button = QPushButton("▶")
-        down_button = QPushButton("▼")
-        for button, tooltip in (
-            (up_button, "Move up"),
-            (left_button, "Move left"),
-            (right_button, "Move right"),
-            (down_button, "Move down"),
+        up_button = QPushButton("↑")
+        left_button = QPushButton("←")
+        right_button = QPushButton("→")
+        down_button = QPushButton("↓")
+        for button, size, tooltip in (
+            (up_button, (42, 32), "Move up"),
+            (left_button, (32, 42), "Move left"),
+            (right_button, (32, 42), "Move right"),
+            (down_button, (42, 32), "Move down"),
         ):
-            button.setFixedSize(42, 32)
+            button.setFixedSize(*size)
             button.setToolTip(tooltip)
 
         layout.addWidget(up_button, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -513,9 +619,21 @@ class ConjureCrosshairApp:
         dialog.adjustSize()
         self._position_dialog(dialog)
 
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            self.window.set_position(original_x, original_y)
-            self.save_current_position()
+        try:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self.window.set_position(original_x, original_y)
+                self.save_current_position()
+        finally:
+            self._position_dialog_instance = None
+
+    @staticmethod
+    def _resurface_dialog(dialog):
+        if dialog is None or not dialog.isVisible():
+            return False
+        dialog.showNormal()
+        dialog.raise_()
+        dialog.activateWindow()
+        return True
 
     @staticmethod
     def _position_dialog(dialog):
@@ -539,6 +657,113 @@ class ConjureCrosshairApp:
         y = geometry.y() + (geometry.height() - dialog.height()) // 2
         dialog.move(x, y)
 
+    def _extract_color_picker(self, dialog):
+        direct_widgets = dialog.findChildren(
+            QWidget,
+            "",
+            Qt.FindChildOption.FindDirectChildrenOnly,
+        )
+        picker = next(
+            widget
+            for widget in direct_widgets
+            if isinstance(widget, QFrame)
+            and not isinstance(widget, QLabel)
+            and widget.geometry().width() > 100
+            and widget.geometry().height() > 100
+        )
+        brightness_bar = next(
+            widget
+            for widget in direct_widgets
+            if widget.geometry().x() > picker.geometry().right()
+            and widget.geometry().height() > 100
+            and not isinstance(widget, QFrame)
+            and not isinstance(widget, QLabel)
+        )
+        for widget in direct_widgets:
+            if widget not in (picker, brightness_bar):
+                widget.hide()
+        return picker, brightness_bar
+
+    def _remember_color(self, color):
+        color = QColor(color)
+        self._color_history = [
+            QColor("#FF0000"),
+            *[
+                previous
+                for previous in self._color_history
+                if previous.name().upper() not in {"#FF0000", color.name().upper()}
+            ],
+        ]
+        if color.name().upper() != "#FF0000":
+            self._color_history.insert(1, color)
+        self._color_history = self._color_history[:10]
+
+    @staticmethod
+    def _dialog_stylesheet():
+        return """
+            QDialog {
+                background-color: #171a21;
+                color: #e8edf5;
+            }
+            QLabel {
+                color: #e8edf5;
+            }
+            QGroupBox {
+                color: #e8edf5;
+                border: 1px solid #343a46;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+                color: #9ba7b8;
+            }
+            QLineEdit, QSpinBox, QComboBox {
+                background-color: #20252e;
+                border: 1px solid #3b4554;
+                border-radius: 4px;
+                color: #f5f7fa;
+                padding: 6px 8px;
+                selection-background-color: #3b82b8;
+            }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 1px solid #5aa9d6;
+            }
+            QPushButton {
+                background-color: #252c37;
+                border: 1px solid #3b4554;
+                border-radius: 4px;
+                color: #e8edf5;
+                padding: 7px 16px;
+                min-width: 64px;
+            }
+            QPushButton:hover {
+                background-color: #2f3a49;
+                border-color: #5aa9d6;
+            }
+            QPushButton:pressed {
+                background-color: #1e6d9b;
+            }
+            QPushButton:disabled {
+                background-color: #20252e;
+                border-color: #2c333e;
+                color: #687181;
+            }
+            QAbstractItemView {
+                background-color: #20252e;
+                border: 1px solid #3b4554;
+                color: #e8edf5;
+                selection-background-color: #2b3442;
+            }
+            QCheckBox {
+                color: #e8edf5;
+                spacing: 6px;
+            }
+        """
+
     def _tray_select_monitor(self, monitor_index):
         self._invoke_on_main_thread(lambda: self.select_monitor(monitor_index))
 
@@ -553,7 +778,7 @@ class ConjureCrosshairApp:
 
     def refresh_tray_menu(self):
         if self._tray_icon is not None:
-            self._tray_icon.menu = self.build_tray_menu()
+            self._tray_icon.setContextMenu(self.build_tray_menu())
 
     def _tray_add_crosshair(self, icon=None, item=None):
         self._invoke_on_main_thread(self._add_crosshair_from_tray)
@@ -680,10 +905,15 @@ class ConjureCrosshairApp:
         return re.sub(r"[^a-z0-9]", "", asset_name.lower())
 
     def _open_hotkey_dialog(self):
+        if self._resurface_dialog(self._hotkey_dialog_instance):
+            return
+
         dialog = QDialog()
+        self._hotkey_dialog_instance = dialog
         dialog.setWindowTitle("Conjure Crosshair: Hotkey")
         dialog.setWindowIcon(QIcon(os.path.join(self.bundle_dir, "icon.ico")))
         dialog.setWindowFlag(Qt.WindowType.Window, True)
+        dialog.setStyleSheet(self._dialog_stylesheet())
 
         prompt = QLabel("Press a key or extra mouse button to assign it as the Crosshair toggle.")
         prompt.setWordWrap(True)
@@ -759,8 +989,11 @@ class ConjureCrosshairApp:
         dialog.adjustSize()
         self._center_dialog(dialog)
         begin_capture()
-        dialog.exec()
-        stop_capture()
+        try:
+            dialog.exec()
+        finally:
+            stop_capture()
+            self._hotkey_dialog_instance = None
 
     def _toggle_crosshair_from_tray(self, icon=None, item=None):
         self._invoke_on_main_thread(self._toggle_crosshair_impl)
@@ -770,7 +1003,7 @@ class ConjureCrosshairApp:
 
     def _exit_application_impl(self):
         if self._tray_icon is not None:
-            self._tray_icon.stop()
+            self._tray_icon.hide()
         if self._event_handle is not None:
             ctypes.windll.kernel32.CloseHandle(self._event_handle)
             self._event_handle = None
@@ -824,7 +1057,7 @@ class ConjureCrosshairApp:
         self.config["hotkey"] = hotkey_label
         self.config_manager.save(self.config)
         if self._tray_icon is not None:
-            self._tray_icon.menu = self.build_tray_menu()
+            self._tray_icon.setContextMenu(self.build_tray_menu())
 
     def update_hotkey(self, hotkey_label, normalized_hotkey):
         self.bind_hotkey(hotkey_label)

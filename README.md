@@ -35,7 +35,7 @@ Windows and Python 3.11 or newer are required. Global input hooks may require ru
 
 ```powershell
 py -3 -m venv .venv
-.venv\Scripts\python.exe -m pip install PyQt6==6.11.0 pystray==0.19.5 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1
+.venv\Scripts\python.exe -m pip install PyQt6==6.11.0 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1
 .venv\Scripts\python.exe main.py
 ```
 

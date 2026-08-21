@@ -35,7 +35,7 @@ class CrosshairWindow(QWidget):
         self.resize(1, 1)
         self._visible = True
         self._image_path = ""
-        self._color = QColor("#FFFFFF")
+        self._color = QColor("#FF0000")
 
     def set_crosshair_image(self, image_path, recenter=True):
         if not image_path or not os.path.exists(image_path):

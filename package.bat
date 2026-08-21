@@ -20,7 +20,7 @@ echo Installing build dependencies...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
 if errorlevel 1 exit /b %errorlevel%
 
-".venv\Scripts\python.exe" -m pip install PyQt6==6.11.0 pystray==0.19.5 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1 pyinstaller==6.22.2
+".venv\Scripts\python.exe" -m pip install PyQt6==6.11.0 Pillow==12.3.0 keyboard==0.13.5 mouse==0.7.1 pyinstaller==6.22.2
 if errorlevel 1 exit /b %errorlevel%
 
 echo Building Conjure Crosshair.exe...
