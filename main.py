@@ -1189,7 +1189,7 @@ def main():
     icon_path = os.path.join(bundle_dir, "icon.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    app.setQuitOnLastWindowClosed(False)
+    app.setQuitOnLastWindowClosed(True)
     ConjureCrosshairApp(app, mutex_handle, event_handle)
     sys.exit(app.exec())
 
