@@ -947,6 +947,7 @@ class ConjureCrosshairApp:
                 close_fds=True,
                 env=installer_environment,
             )
+            self._invoke_on_main_thread(self._exit_application_impl)
         except (OSError, urllib.error.URLError) as error:
             if installer_path and os.path.exists(installer_path):
                 os.remove(installer_path)
@@ -1074,6 +1075,20 @@ class ConjureCrosshairApp:
     def _exit_application_impl(self):
         if self._tray_icon is not None:
             self._tray_icon.hide()
+        if self._registered_hotkey:
+            try:
+                keyboard.remove_hotkey(self._registered_hotkey)
+            except Exception:
+                pass
+            self._registered_hotkey = ""
+        if self._mouse_hotkey_callback is not None:
+            try:
+                mouse.unhook(self._mouse_hotkey_callback)
+            except Exception:
+                pass
+            self._mouse_hotkey_callback = None
+            self._registered_mouse_button = ""
+        self.window.close()
         if self._event_handle is not None:
             ctypes.windll.kernel32.CloseHandle(self._event_handle)
             self._event_handle = None

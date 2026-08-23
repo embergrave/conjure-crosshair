@@ -17,8 +17,7 @@ DefaultDirName={autopf}\Conjure Crosshair
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 UsePreviousAppDir=yes
-CloseApplications=yes
-CloseApplicationsFilter=Conjure Crosshair.exe
+CloseApplications=no
 RestartApplications=no
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -42,4 +41,4 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{commonstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: startup
 
 [Run]
-Filename: "{cmd}"; Parameters: "/C set PYINSTALLER_RESET_ENVIRONMENT=1 && start """" ""{app}\{#MyAppExeName}"""; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent runhidden
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
