@@ -940,14 +940,10 @@ class ConjureCrosshairApp:
                 ) as installer_file:
                     installer_path = installer_file.name
                     shutil.copyfileobj(response, installer_file)
-            installer_environment = os.environ.copy()
-            installer_environment["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
             subprocess.Popen(
                 [installer_path],
                 close_fds=True,
-                env=installer_environment,
             )
-            self._invoke_on_main_thread(self._exit_application_impl)
         except (OSError, urllib.error.URLError) as error:
             if installer_path and os.path.exists(installer_path):
                 os.remove(installer_path)
