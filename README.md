@@ -116,6 +116,10 @@ Deleting the data directory resets the application to its defaults and removes i
 
 Generated folders such as `.venv`, `build`, `dist`, and `__pycache__` are local artifacts and should not be distributed with the source. User-specific `config.json` and `conjure_crosshair.log` files should also remain local.
 
+## Credits
+
+- Slick - bug finding
+
 ## Troubleshooting
 
 - **The hotkey does not work:** choose another key or mouse button, and run Conjure Crosshair with the permissions required by the target application.

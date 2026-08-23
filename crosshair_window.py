@@ -95,7 +95,9 @@ class CrosshairWindow(QWidget):
         if screen is None:
             return self.x(), self.y()
 
-        geometry = screen.availableGeometry()
+        # Use full screen geometry (not availableGeometry) so the taskbar
+        # doesn't skew the center vertically/horizontally.
+        geometry = screen.geometry()
         x = (geometry.width() - self.width()) // 2 + geometry.x()
         y = (geometry.height() - self.height()) // 2 + geometry.y()
         return x, y

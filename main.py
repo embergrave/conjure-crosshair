@@ -14,8 +14,8 @@ import re
 import keyboard
 import mouse
 from PIL import Image, ImageDraw
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPolygonF
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from config_manager import ConfigManager
@@ -49,6 +50,39 @@ class _MainThreadInvoker(QObject):
 
     def _run(self, callback):
         callback()
+
+
+class _IconLabel(QLabel):
+    # Paints the pixmap as-is; QLabel would otherwise grey it out when disabled.
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.drawPixmap(0, 0, self.pixmap())
+
+
+class _ArrowButton(QPushButton):
+    # A borderless D-pad button rendered as a single triangle, rotated per direction.
+    _ANGLES = {"up": 0, "right": 90, "down": 180, "left": 270}
+    _TRIANGLE = (QPointF(0, -1), QPointF(-0.85, 0.6), QPointF(0.85, 0.6))
+
+    def __init__(self, direction, parent=None):
+        super().__init__(parent)
+        self._direction = direction
+        self.setFlat(True)
+        self.setStyleSheet(
+            "QPushButton { background: transparent; border: none; padding: 0px; }"
+        )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        color = QColor("#5aa9d6") if self.isDown() else QColor("#e8edf5")
+        painter.setBrush(color)
+        size = min(self.width(), self.height()) * 0.48
+        triangle = QPolygonF(QPointF(point.x() * size, point.y() * size) for point in self._TRIANGLE)
+        painter.translate(self.width() / 2, self.height() / 2)
+        painter.rotate(self._ANGLES[self._direction])
+        painter.drawPolygon(triangle)
 
 
 INSTANCE_MUTEX_NAME = "ConjureCrosshair.SingleInstance"
@@ -117,7 +151,7 @@ class ConjureCrosshairApp:
             self.config["image_path"] = self.get_asset_path(self.config["selected_image"])
 
         self.set_crosshair_color(self.config.get("color", "#FF0000"), save=False)
-        self.set_selected_image(self.config["selected_image"])
+        self.set_selected_image(self.config["selected_image"], reposition=False)
         self.log_monitor_layout()
         self.apply_saved_position()
         self._show_crosshair_impl()
@@ -160,7 +194,7 @@ class ConjureCrosshairApp:
             return
 
         for index, screen in enumerate(screens):
-            geometry = screen.availableGeometry()
+            geometry = screen.geometry()
             center_x = geometry.x() + geometry.width() / 2
             center_y = geometry.y() + geometry.height() / 2
             position_x, position_y = self.window.center_position(screen)
@@ -243,7 +277,7 @@ class ConjureCrosshairApp:
             index += 1
         return candidate
 
-    def set_selected_image(self, image_name):
+    def set_selected_image(self, image_name, reposition=True):
         if not image_name:
             image_name = "cross.png"
         selected_name = os.path.basename(image_name)
@@ -253,11 +287,12 @@ class ConjureCrosshairApp:
             selected_name = "cross.png"
         was_visible = self.window.visible
         self.set_crosshair_image(asset_path)
-        screens = QApplication.screens()
-        monitor_index = self._valid_monitor_index(self.config.get("monitor", 0), screens)
-        if screens:
-            self.window.center_on_screen(screens[monitor_index])
-        self.save_current_position()
+        if reposition:
+            screens = QApplication.screens()
+            monitor_index = self._valid_monitor_index(self.config.get("monitor", 0), screens)
+            if screens:
+                self.window.center_on_screen(screens[monitor_index])
+            self.save_current_position()
         self.window.set_visible(was_visible)
         self.config["selected_image"] = selected_name
         self.config["image_path"] = asset_path
@@ -318,6 +353,8 @@ class ConjureCrosshairApp:
 
     def build_settings_menu(self):
         menu = QMenu()
+        menu.addAction(self._build_title_action(menu))
+        menu.addSeparator()
         crosshair_menu = menu.addMenu("Select Crosshair")
         for image_name in self.list_available_image_names():
             self._add_menu_action(
@@ -373,6 +410,28 @@ class ConjureCrosshairApp:
         action = menu.addAction(label)
         action.triggered.connect(callback)
         return action
+
+    def _build_title_action(self, menu):
+        title_widget = QWidget(menu)
+        layout = QHBoxLayout(title_widget)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(4)
+
+        icon_label = _IconLabel(title_widget)
+        icon_path = os.path.join(self.bundle_dir, "icon.ico")
+        if os.path.exists(icon_path):
+            icon_label.setPixmap(QIcon(icon_path).pixmap(20, 20))
+        layout.addWidget(icon_label)
+
+        text_label = QLabel("Conjure Crosshair", title_widget)
+        text_label.setStyleSheet("font-size: 10pt; font-weight: 600; color: #ffffff;")
+        layout.addWidget(text_label)
+        layout.addStretch()
+
+        title_action = QWidgetAction(menu)
+        title_action.setDefaultWidget(title_widget)
+        title_action.setEnabled(False)
+        return title_action
 
     @staticmethod
     def _tray_menu_stylesheet():
@@ -474,26 +533,26 @@ class ConjureCrosshairApp:
         brightness_bar.setParent(dialog)
         color_source.hide()
 
-        dialog.setFixedSize(420, 360)
-        picker.setGeometry(116, 24, 222, 202)
-        brightness_bar.setGeometry(350, 24, 20, 208)
+        dialog.setFixedSize(255, 245)
+        picker.setGeometry(35, 20, 189, 172)
+        brightness_bar.setGeometry(227, 17, 17, 177)
         picker.show()
         brightness_bar.show()
 
         history_buttons = []
         for index in range(10):
             swatch = QPushButton(dialog)
-            swatch.setFixedSize(22, 18)
-            swatch.move(34, 24 + round(index * (202 - 18) / 9))
+            swatch.setFixedSize(20, 15)
+            swatch.move(10, 20 + round(index * (172 - 15) / 9))
             swatch.clicked.connect(
                 lambda checked=False, slot=index: select_history_color(slot)
             )
             history_buttons.append(swatch)
 
         set_button = QPushButton("Set", dialog)
-        set_button.setGeometry(150, 270, 120, 36)
+        set_button.setGeometry(25, 203, 100, 31)
         close_button = QPushButton("Close", dialog)
-        close_button.setGeometry(150, 314, 120, 36)
+        close_button.setGeometry(130, 203, 100, 31)
 
         def refresh_history():
             for index, swatch in enumerate(history_buttons):
@@ -501,13 +560,13 @@ class ConjureCrosshairApp:
                 swatch.setEnabled(color is not None)
                 if color is None:
                     swatch.setStyleSheet(
-                        "min-width: 22px; max-width: 22px; min-height: 18px; max-height: 18px; "
+                        "min-width: 19px; max-width: 19px; min-height: 15px; max-height: 15px; "
                         "padding: 0; background-color: #20252e; border: 1px solid #343a46; border-radius: 3px;"
                     )
                 else:
                     swatch.setToolTip(color.name().upper())
                     swatch.setStyleSheet(
-                        f"min-width: 22px; max-width: 22px; min-height: 18px; max-height: 18px; "
+                        f"min-width: 19px; max-width: 19px; min-height: 15px; max-height: 15px; "
                         f"padding: 0; background-color: {color.name()}; border: 1px solid #687181; border-radius: 3px;"
                     )
 
@@ -533,7 +592,7 @@ class ConjureCrosshairApp:
             swatch.raise_()
         set_button.show()
         close_button.show()
-        self._center_dialog(dialog)
+        self._position_dialog(dialog)
         try:
             dialog.exec()
         finally:
@@ -562,36 +621,41 @@ class ConjureCrosshairApp:
             dialog.setWindowIcon(QIcon(icon_path))
         dialog.setStyleSheet(self._dialog_stylesheet())
         layout = QGridLayout(dialog)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setHorizontalSpacing(0)
+        layout.setVerticalSpacing(5)
 
         x_input = QSpinBox()
         x_input.setRange(-100000, 100000)
         x_input.setValue(original_x)
         x_input.setKeyboardTracking(True)
-        x_input.setFixedWidth(80)
+        x_input.setFixedWidth(70)
         x_input.setStyleSheet("QSpinBox::up-button, QSpinBox::down-button { width: 0px; height: 0px; }")
 
         y_input = QSpinBox()
         y_input.setRange(-100000, 100000)
         y_input.setValue(original_y)
         y_input.setKeyboardTracking(True)
-        y_input.setFixedWidth(80)
+        y_input.setFixedWidth(70)
         y_input.setStyleSheet("QSpinBox::up-button, QSpinBox::down-button { width: 0px; height: 0px; }")
 
         coordinate_form = QFormLayout()
+        coordinate_form.setContentsMargins(4, 0, 4, 0)
+        coordinate_form.setSpacing(2)
         coordinate_form.addRow("X:", x_input)
         coordinate_form.addRow("Y:", y_input)
 
-        up_button = QPushButton("↑")
-        left_button = QPushButton("←")
-        right_button = QPushButton("→")
-        down_button = QPushButton("↓")
-        for button, size, tooltip in (
-            (up_button, (42, 32), "Move up"),
-            (left_button, (32, 42), "Move left"),
-            (right_button, (32, 42), "Move right"),
-            (down_button, (42, 32), "Move down"),
+        up_button = _ArrowButton("up")
+        left_button = _ArrowButton("left")
+        right_button = _ArrowButton("right")
+        down_button = _ArrowButton("down")
+        for button, tooltip in (
+            (up_button, "Move up"),
+            (left_button, "Move left"),
+            (right_button, "Move right"),
+            (down_button, "Move down"),
         ):
-            button.setFixedSize(*size)
+            button.setFixedSize(64, 64)
             button.setToolTip(tooltip)
 
         layout.addWidget(up_button, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -617,6 +681,7 @@ class ConjureCrosshairApp:
         down_button.clicked.connect(lambda: y_input.setValue(y_input.value() + 1))
 
         dialog.adjustSize()
+        dialog.setFixedSize(dialog.size())
         self._position_dialog(dialog)
 
         try:
@@ -915,7 +980,7 @@ class ConjureCrosshairApp:
         dialog.setWindowFlag(Qt.WindowType.Window, True)
         dialog.setStyleSheet(self._dialog_stylesheet())
 
-        prompt = QLabel("Press a key or extra mouse button to assign it as the Crosshair toggle.")
+        prompt = QLabel("Press a key or mouse button to assign it as the Crosshair toggle.")
         prompt.setWordWrap(True)
 
         selected_hotkey = QLabel("No key selected")
