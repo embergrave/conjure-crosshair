@@ -941,7 +941,6 @@ class ConjureCrosshairApp:
                     installer_path = installer_file.name
                     shutil.copyfileobj(response, installer_file)
             subprocess.Popen([installer_path], close_fds=True)
-            self._invoke_on_main_thread(self._exit_application_impl)
         except (OSError, urllib.error.URLError) as error:
             if installer_path and os.path.exists(installer_path):
                 os.remove(installer_path)
