@@ -7,6 +7,7 @@ DEFAULT_CONFIG = {
     "selected_image": "cross.png",
     "image_path": "",
     "hotkey": "F8",
+    "hide_hotkey": "",
     "color": "#FF0000",
     "visible": True,
     "x": None,

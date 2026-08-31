@@ -139,10 +139,15 @@ class ConjureCrosshairApp:
         self._registered_hotkey = ""
         self._registered_mouse_button = ""
         self._mouse_hotkey_callback = None
+        self._registered_hide_hotkey = ""
+        self._registered_hide_mouse_button = ""
+        self._hide_hotkey_remove = None
+        self._hide_mouse_hotkey_callback = None
         self._tray_icon = None
         self._position_dialog_instance = None
         self._color_dialog_instance = None
         self._hotkey_dialog_instance = None
+        self._hide_hotkey_dialog_instance = None
 
         self.ensure_default_assets()
         if not self.config.get("selected_image"):
@@ -156,6 +161,7 @@ class ConjureCrosshairApp:
         self.apply_saved_position()
         self._show_crosshair_impl()
         self.bind_hotkey(self.config.get("hotkey", "F8"))
+        self.bind_hide_hotkey(self.config.get("hide_hotkey", ""))
         self.create_tray_icon()
         self._start_instance_event_listener()
 
@@ -396,8 +402,13 @@ class ConjureCrosshairApp:
         )
         self._add_menu_action(
             menu,
-            f"Set Hotkey: {self.config.get('hotkey', 'F8')}",
+            f"Set Toggle Hotkey: {self.config.get('hotkey', 'F8')}",
             self._tray_set_hotkey,
+        )
+        self._add_menu_action(
+            menu,
+            f"Set Hide Hotkey: {self._format_hide_hotkey_menu_label()}",
+            self._tray_set_hide_hotkey,
         )
         return menu
 
@@ -862,6 +873,9 @@ class ConjureCrosshairApp:
     def _tray_set_hotkey(self, icon=None, item=None):
         self._invoke_on_main_thread(self._open_hotkey_dialog)
 
+    def _tray_set_hide_hotkey(self, icon=None, item=None):
+        self._invoke_on_main_thread(self._open_hide_hotkey_dialog)
+
     def _tray_update(self, icon=None, item=None):
         self._invoke_on_main_thread(self._check_for_updates)
 
@@ -1062,6 +1076,100 @@ class ConjureCrosshairApp:
             stop_capture()
             self._hotkey_dialog_instance = None
 
+    def _open_hide_hotkey_dialog(self):
+        if self._resurface_dialog(self._hide_hotkey_dialog_instance):
+            return
+
+        dialog = QDialog()
+        self._hide_hotkey_dialog_instance = dialog
+        dialog.setWindowTitle("Conjure Crosshair: Hide Hotkey")
+        dialog.setWindowIcon(QIcon(os.path.join(self.bundle_dir, "icon.ico")))
+        dialog.setWindowFlag(Qt.WindowType.Window, True)
+        dialog.setStyleSheet(self._dialog_stylesheet())
+
+        prompt = QLabel("Press a key or mouse button to hide the crosshair while held down.")
+        prompt.setWordWrap(True)
+
+        selected_hotkey = QLabel("No key selected")
+        selected_hotkey.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        selected_hotkey.setMinimumWidth(280)
+        selected_hotkey.setStyleSheet("font-size: 24px; font-weight: bold; padding: 12px;")
+
+        reassign_button = QPushButton("Reassign")
+        save_button = QPushButton("Save")
+        save_button.setEnabled(False)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        button_layout.addWidget(reassign_button)
+        button_layout.addWidget(save_button)
+        button_layout.addStretch()
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(prompt)
+        layout.addWidget(selected_hotkey)
+        layout.addLayout(button_layout)
+
+        captured_hotkey = {"value": self.config.get("hide_hotkey", "")}
+        capture_hooks = {"keyboard": None, "mouse": None}
+        if captured_hotkey["value"]:
+            selected_hotkey.setText(self._format_hotkey_label(captured_hotkey["value"]))
+            save_button.setEnabled(True)
+
+        def begin_capture():
+            stop_capture()
+            prompt.setText("Press a key or extra mouse button to hide the crosshair while held down.")
+            selected_hotkey.setText("Listening...")
+            save_button.setEnabled(False)
+            reassign_button.setEnabled(False)
+
+            def keyboard_callback(event):
+                if event.event_type == "down":
+                    self._invoke_on_main_thread(lambda: finish_capture(event.name))
+
+            def mouse_callback(event):
+                if getattr(event, "event_type", None) == "down":
+                    self._invoke_on_main_thread(lambda: finish_capture(f"mouse:{event.button}"))
+
+            capture_hooks["keyboard"] = keyboard.hook(keyboard_callback)
+            capture_hooks["mouse"] = mouse.hook(mouse_callback)
+
+        def stop_capture():
+            if capture_hooks["keyboard"] is not None:
+                keyboard.unhook(capture_hooks["keyboard"])
+                capture_hooks["keyboard"] = None
+            if capture_hooks["mouse"] is not None:
+                mouse.unhook(capture_hooks["mouse"])
+                capture_hooks["mouse"] = None
+
+        def finish_capture(hotkey):
+            stop_capture()
+            reassign_button.setEnabled(True)
+            if not hotkey:
+                selected_hotkey.setText("No key selected")
+                return
+            captured_hotkey["value"] = hotkey
+            selected_hotkey.setText(self._format_hotkey_label(hotkey))
+            save_button.setEnabled(True)
+
+        def save_hotkey():
+            hotkey = captured_hotkey["value"]
+            if hotkey:
+                self.bind_hide_hotkey(hotkey)
+                dialog.accept()
+
+        reassign_button.clicked.connect(begin_capture)
+        save_button.clicked.connect(save_hotkey)
+
+        dialog.adjustSize()
+        self._center_dialog(dialog)
+        begin_capture()
+        try:
+            dialog.exec()
+        finally:
+            stop_capture()
+            self._hide_hotkey_dialog_instance = None
+
     def _toggle_crosshair_from_tray(self, icon=None, item=None):
         self._invoke_on_main_thread(self._toggle_crosshair_impl)
 
@@ -1084,6 +1192,20 @@ class ConjureCrosshairApp:
                 pass
             self._mouse_hotkey_callback = None
             self._registered_mouse_button = ""
+        if self._hide_hotkey_remove is not None:
+            try:
+                self._hide_hotkey_remove()
+            except Exception:
+                pass
+            self._hide_hotkey_remove = None
+            self._registered_hide_hotkey = ""
+        if self._hide_mouse_hotkey_callback is not None:
+            try:
+                mouse.unhook(self._hide_mouse_hotkey_callback)
+            except Exception:
+                pass
+            self._hide_mouse_hotkey_callback = None
+            self._registered_hide_mouse_button = ""
         self.window.close()
         if self._event_handle is not None:
             ctypes.windll.kernel32.CloseHandle(self._event_handle)
@@ -1140,6 +1262,59 @@ class ConjureCrosshairApp:
         if self._tray_icon is not None:
             self._tray_icon.setContextMenu(self.build_tray_menu())
 
+    def bind_hide_hotkey(self, hotkey_label):
+        normalized = self._normalize_hotkey(hotkey_label)
+        if self._hide_hotkey_remove is not None:
+            try:
+                self._hide_hotkey_remove()
+            except Exception:
+                pass
+            self._hide_hotkey_remove = None
+            self._registered_hide_hotkey = ""
+        if self._registered_hide_mouse_button:
+            if self._hide_mouse_hotkey_callback is not None:
+                mouse.unhook(self._hide_mouse_hotkey_callback)
+            self._registered_hide_mouse_button = ""
+            self._hide_mouse_hotkey_callback = None
+
+        self.config["hide_hotkey"] = hotkey_label
+        self.config_manager.save(self.config)
+        if self._tray_icon is not None:
+            self._tray_icon.setContextMenu(self.build_tray_menu())
+
+        if not normalized:
+            return
+
+        if normalized.startswith("mouse:"):
+            button_name = normalized.removeprefix("mouse:")
+
+            def mouse_callback(event):
+                if getattr(event, "event_type", None) not in ("down", "up"):
+                    return
+                if event.button != button_name:
+                    return
+                self._set_crosshair_hidden_by_hotkey(event.event_type == "down")
+
+            self._registered_hide_mouse_button = button_name
+            self._hide_mouse_hotkey_callback = mouse.hook(mouse_callback)
+        else:
+            def keyboard_callback(event):
+                self._set_crosshair_hidden_by_hotkey(event.event_type == "down")
+
+            self._registered_hide_hotkey = normalized
+            self._hide_hotkey_remove = keyboard.hook_key(normalized, keyboard_callback)
+
+    def _set_crosshair_hidden_by_hotkey(self, hidden):
+        if not self.config.get("visible", True):
+            return
+        self._invoke_on_main_thread(lambda: self.window.set_visible(not hidden))
+
+    def _format_hide_hotkey_menu_label(self):
+        hide_hotkey = self.config.get("hide_hotkey", "")
+        if not hide_hotkey:
+            return "None"
+        return self._format_hotkey_label(hide_hotkey)
+
     def update_hotkey(self, hotkey_label, normalized_hotkey):
         self.bind_hotkey(hotkey_label)
         self.config["hotkey"] = hotkey_label
@@ -1189,7 +1364,7 @@ def main():
     icon_path = os.path.join(bundle_dir, "icon.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    app.setQuitOnLastWindowClosed(True)
+    app.setQuitOnLastWindowClosed(False)
     ConjureCrosshairApp(app, mutex_handle, event_handle)
     sys.exit(app.exec())
 
